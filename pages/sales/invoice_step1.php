@@ -41,15 +41,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
     $checkClient->close();
 
-    // Store in session with address
-    $_SESSION['sales_invoice'] = [
-        'client_name' => $clientName,
-        'invoice_type' => $clientType,
-        'company_ice' => $companyICE,
-        'client_address' => $clientAddress,
-        'invoice_number' => generateInvoiceNumber('FAC'),
-        'total_ttc' => $totalTTC
-    ];
+// Store in session with address
+$_SESSION['sales_invoice'] = [
+    'client_name' => $clientName,
+    'invoice_type' => $clientType,
+    'company_ice' => $companyICE,
+    'client_address' => $clientAddress,
+    'invoice_number' => generateInvoiceNumber(), // This will now use the settings
+    'total_ttc' => $totalTTC,
+    'payment_type' => $_POST['payment_type'],
+    'payment_reference' => ($_POST['payment_type'] === 'cheque' || $_POST['payment_type'] === 'effet') 
+        ? trim($_POST['payment_reference']) 
+        : null
+];
 
     // In the POST handling section, add these lines before redirect
     $_SESSION['sales_invoice']['payment_type'] = $_POST['payment_type'];

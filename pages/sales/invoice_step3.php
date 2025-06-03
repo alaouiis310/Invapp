@@ -129,12 +129,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
 
 
-
-
-
-
-
-
     // Verify client exists (should exist from step1, but double-check)
     $verifyClient = $conn->prepare("SELECT ID FROM CLIENT WHERE CLIENTNAME = ?");
     $clientName = $_SESSION['sales_invoice']['client_name'];
@@ -328,6 +322,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $pdf->Cell(30, 8, 'Numero', 1, 0, 'C');
         $pdf->Cell(30, 8, 'Date', 1, 1, 'C');
         $pdf->SetFont('Arial', '', 10);
+
         $pdf->SetX(10);
         $pdf->Cell(30, 8, $invoiceHeader['INVOICE_NUMBER'], 1, 0, 'C');
         $pdf->Cell(30, 8, date('d/m/Y', strtotime($invoiceHeader['DATE'])), 1, 1, 'C');
@@ -374,41 +369,54 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $pdf->Cell(20, 0, '', 'BR');
         $pdf->Cell(35, 0, '', 'BR', 1);
 
-        // Totals
+
+
+
+
+
+        $pdf->Ln(10); // ← Adds space between product table and this block
+        $startY = $pdf->GetY();
+
         $pdf->Ln(5);
         $pdf->SetFont('Arial', 'I', 11);
         $pdf->SetTextColor(0, 0, 255);
 
-        // Convert total to words
+        // Convertir total en lettres
         $totalInWords = numberToFrenchWords(number_format($totalTTC, 2));
-        $pdf->Cell(130, 6, "La presente facture est arretee a la somme de : ", 0, 1);
-        $pdf->Cell(130, 6, $totalInWords, 0, 1);
 
-        // Add this after the totals section in the PDF
-        $pdf->Ln(5);
+        // Texte explicatif à gauche
+        $pdf->SetXY(10, $startY);
+        $pdf->MultiCell(120, 6, "La presente facture est arretee a la somme de : \n" . $totalInWords);
+
+        // Enregistrer la position Y après le texte explicatif
+        $afterTextY = $pdf->GetY();
+
+        // Totaux numériques à droite (position fixe)
+        $pdf->SetXY(140, $startY);
+        $pdf->SetTextColor(0, 0, 0);
+        $pdf->SetFont('Arial', '', 12);
+        $pdf->Cell(30, 8, 'TOTAL HT', 1, 0, 'C');
+        $pdf->Cell(30, 8, number_format($totalHT, 2), 1, 1, 'R');
+
+        $pdf->SetX(140);
+        $pdf->Cell(30, 8, 'TVA', 1, 0, 'C');
+        $pdf->Cell(30, 8, number_format($totalTVA, 2), 1, 1, 'R');
+
+        $pdf->SetX(140);
+        $pdf->Cell(30, 8, 'TOTAL TTC', 1, 0, 'C');
+        $pdf->Cell(30, 8, number_format($totalTTC, 2), 1, 1, 'R');
+
+        // Bloc "Paye par" en dessous du texte explicatif
+        $pdf->SetY($afterTextY + 5);
         $pdf->SetFont('Arial', '', 11);
         $pdf->Cell(40, 8, 'Paye par:', 0, 0);
         $pdf->Cell(0, 8, ucfirst($_SESSION['sales_invoice']['payment_type']), 0, 1);
 
         if ($_SESSION['sales_invoice']['payment_type'] === 'cheque' || $_SESSION['sales_invoice']['payment_type'] === 'effet') {
-            $pdf->Cell(40, 8, 'N°:', 0, 0);
+            $pdf->Cell(40, 8, 'Numero:', 0, 0);
             $pdf->Cell(0, 8, $_SESSION['sales_invoice']['payment_reference'], 0, 1);
         }
 
-
-
-        // Numeric totals
-        $pdf->SetTextColor(0, 0, 0);
-        $pdf->SetFont('Arial', '', 12);
-        $pdf->SetXY(135, $pdf->GetY() + 0);  // Adjust position below the text
-        $pdf->Cell(30, 8, 'TOTAL HT', 1, 0, 'C');
-        $pdf->Cell(30, 8, number_format($totalHT, 2), 1, 1, 'R');
-        $pdf->SetX(135);
-        $pdf->Cell(30, 8, 'TVA', 1, 0, 'C');
-        $pdf->Cell(30, 8, number_format($totalTVA, 2), 1, 1, 'R');
-        $pdf->SetX(135);
-        $pdf->Cell(30, 8, 'TOTAL TTC', 1, 0, 'C');
-        $pdf->Cell(30, 8, number_format($totalTTC, 2), 1, 1, 'R');
 
         // Save PDF to file
         $pdfPath = '../../invoices/' . $invoiceHeader['INVOICE_NUMBER'] . '.pdf';

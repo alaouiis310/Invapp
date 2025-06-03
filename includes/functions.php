@@ -43,35 +43,55 @@ function redirect($url) {
     exit();
 }
 
-function generateInvoiceNumber($prefix = 'INV') {
-    $date = date('Ymd');
-    $filename = 'last_invoice_number.txt';
+function getSetting($key, $default = '') {
+    global $conn;
+    $result = $conn->query("SELECT SETTING_VALUE FROM APP_SETTINGS WHERE SETTING_KEY = '$key'");
+    return $result->num_rows > 0 ? $result->fetch_assoc()['SETTING_VALUE'] : $default;
+}
 
-    // Lire le dernier numéro
-    if (file_exists($filename)) {
-        $lastNumber = (int) file_get_contents($filename);
-    } else {
-        $lastNumber = 9499; // donc la première facture sera 9500
-    }
-
-    $newNumber = $lastNumber + 1;
-
-    // Sauvegarder le nouveau numéro
-    file_put_contents($filename, $newNumber);
-
-    return $prefix . str_pad($newNumber, 5, '0', STR_PAD_LEFT);
+function generateInvoiceNumber($prefix = 'FAC') {
+    global $conn;
+    
+    // Get the starting number from settings
+    $result = $conn->query("SELECT SETTING_VALUE FROM APP_SETTINGS WHERE SETTING_KEY = 'INVOICE_START_NUMBER'");
+    $startNumber = $result->num_rows > 0 ? (int)$result->fetch_assoc()['SETTING_VALUE'] : 1;
+    
+    // Generate the number with leading zeros
+    $invoiceNumber = $prefix . str_pad($startNumber, 5, '0', STR_PAD_LEFT);
+    
+    // Increment and save the next number
+    $nextNumber = $startNumber + 1;
+    $conn->query("UPDATE APP_SETTINGS SET SETTING_VALUE = $nextNumber WHERE SETTING_KEY = 'INVOICE_START_NUMBER'");
+    
+    return $invoiceNumber;
 }
 
 
 
 function generateDeliveryNumber($prefix = 'BLV') {
-    // Get current year and month
-    $yearMonth = date('Ym');
+    global $conn;
     
-    // Generate a random 4-digit number
-    $random = str_pad(mt_rand(1, 9999), 4, '0', STR_PAD_LEFT);
+    // Get the starting number from settings
+    $result = $conn->query("SELECT SETTING_VALUE FROM APP_SETTINGS WHERE SETTING_KEY = 'DELIVERY_START_NUMBER'");
+    $startNumber = $result->num_rows > 0 ? (int)$result->fetch_assoc()['SETTING_VALUE'] : 1;
     
-    // Combine to create the delivery number
-    return $prefix . '-' . $yearMonth . '-' . $random;
+    // Generate the number with leading zeros
+    $deliveryNumber = $prefix . str_pad($startNumber, 5, '0', STR_PAD_LEFT);
+    
+    // Increment and save the next number
+    $nextNumber = $startNumber + 1;
+    $conn->query("UPDATE APP_SETTINGS SET SETTING_VALUE = $nextNumber WHERE SETTING_KEY = 'DELIVERY_START_NUMBER'");
+    
+    return $deliveryNumber;
+}
+
+
+function getUserSetting($userId, $key, $default = '') {
+    global $conn;
+    $stmt = $conn->prepare("SELECT setting_value FROM user_settings WHERE user_id = ? AND setting_key = ?");
+    $stmt->bind_param("is", $userId, $key);
+    $stmt->execute();
+    $result = $stmt->get_result();
+    return $result->num_rows > 0 ? $result->fetch_assoc()['setting_value'] : $default;
 }
 ?>

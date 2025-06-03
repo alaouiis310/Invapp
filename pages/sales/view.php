@@ -6,6 +6,30 @@ requireLogin();
 $title = "Factures de Vente";
 include '../../includes/header.php';
 
+// Get user visibility settings
+$salesVisibilityDays = 365; // Default for admin
+$salesMinTTC = 0; // Default for admin
+
+if (!isAdmin()) {
+    $stmt = $conn->prepare("SELECT setting_value FROM user_settings WHERE user_id = ? AND setting_key = 'sales_visibility_days'");
+    $stmt->bind_param("i", $_SESSION['user_id']);
+    $stmt->execute();
+    $result = $stmt->get_result();
+    if ($row = $result->fetch_assoc()) {
+        $salesVisibilityDays = (int)$row['setting_value'];
+    }
+    $stmt->close();
+
+    $stmt = $conn->prepare("SELECT setting_value FROM user_settings WHERE user_id = ? AND setting_key = 'sales_min_ttc'");
+    $stmt->bind_param("i", $_SESSION['user_id']);
+    $stmt->execute();
+    $result = $stmt->get_result();
+    if ($row = $result->fetch_assoc()) {
+        $salesMinTTC = (float)$row['setting_value'];
+    }
+    $stmt->close();
+}
+
 // Initialize filter variables
 $searchTerm = isset($_GET['search']) ? sanitizeInput($_GET['search']) : '';
 $clientFilter = isset($_GET['client']) ? sanitizeInput($_GET['client']) : '';
@@ -32,6 +56,15 @@ $sql = "SELECT * FROM SELL_INVOICE_HEADER WHERE 1=1";
 $params = [];
 $types = '';
 
+// Apply visibility restrictions for non-admin users
+if (!isAdmin()) {
+    $dateLimit = date('Y-m-d', strtotime("-$salesVisibilityDays days"));
+    $sql .= " AND DATE >= ? AND TOTAL_PRICE_TTC >= ?";
+    $params[] = $dateLimit;
+    $params[] = $salesMinTTC;
+    $types .= 'sd';
+}
+
 // Add search term filter
 if (!empty($searchTerm)) {
     $sql .= " AND (CLIENT_NAME LIKE ? OR INVOICE_NUMBER LIKE ?)";
@@ -54,8 +87,8 @@ if (!empty($paymentFilter)) {
     $types .= 's';
 }
 
-// Add total TTC range filter
-if ($minTotal !== null && $minTotal !== '') {
+// Add total TTC range filter (only if it's more restrictive than the visibility setting)
+if ($minTotal !== null && $minTotal !== '' && $minTotal > $salesMinTTC) {
     $sql .= " AND TOTAL_PRICE_TTC >= ?";
     $params[] = $minTotal;
     $types .= 'd';
@@ -66,11 +99,14 @@ if ($maxTotal !== null && $maxTotal !== '') {
     $types .= 'd';
 }
 
-// Add date range filter
+// Add date range filter (only if it's more restrictive than the visibility setting)
 if (!empty($startDate)) {
-    $sql .= " AND DATE >= ?";
-    $params[] = $startDate;
-    $types .= 's';
+    $visibilityStartDate = date('Y-m-d', strtotime("-$salesVisibilityDays days"));
+    if (strtotime($startDate) > strtotime($visibilityStartDate)) {
+        $sql .= " AND DATE >= ?";
+        $params[] = $startDate;
+        $types .= 's';
+    }
 }
 if (!empty($endDate)) {
     $sql .= " AND DATE <= ?";
@@ -112,6 +148,8 @@ if (isset($_SESSION['invoice_pdf'])) {
     exit();
 }
 ?>
+
+<!-- [Rest of your HTML/CSS remains exactly the same] -->
 
 <style>
     .filters-container {

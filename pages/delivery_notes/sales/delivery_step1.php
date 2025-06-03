@@ -27,14 +27,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
     $checkClient->close();
 
-    // Store in session
-    $_SESSION['sales_delivery'] = [
-        'client_name' => $clientName,
-        'delivery_type' => $clientType,
-        'company_ice' => $companyICE,
-        'payment_method' => $paymentMethod,
-        'delivery_number' => generateDeliveryNumber('BLV')
-    ];
+// Store in session
+$_SESSION['sales_delivery'] = [
+    'client_name' => $clientName,
+    'delivery_type' => $clientType,
+    'company_ice' => $companyICE,
+    'payment_method' => $paymentMethod,
+    'delivery_number' => generateDeliveryNumber() // This will now use the settings
+];
     
     redirect('delivery_step2.php');
 }

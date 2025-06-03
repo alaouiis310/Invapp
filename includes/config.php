@@ -14,8 +14,8 @@ if ($conn->connect_error) {
 }
 
 // 1h minute timeout
-ini_set('session.gc_maxlifetime', 3600);
-session_set_cookie_params(3600);
+ini_set('session.gc_maxlifetime', 7200);
+session_set_cookie_params(7200);
 
 // Set charset
 $conn->set_charset("utf8");

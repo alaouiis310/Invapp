@@ -10,6 +10,20 @@ if (!isAdmin()) {
     redirect('../dashboard.php');
 }
 
+// Get current starting numbers
+$invoiceStartNumber = 1;
+$deliveryStartNumber = 1;
+
+$result = $conn->query("SELECT SETTING_VALUE FROM APP_SETTINGS WHERE SETTING_KEY = 'INVOICE_START_NUMBER'");
+if ($result->num_rows > 0) {
+    $invoiceStartNumber = (int)$result->fetch_assoc()['SETTING_VALUE'];
+}
+
+$result = $conn->query("SELECT SETTING_VALUE FROM APP_SETTINGS WHERE SETTING_KEY = 'DELIVERY_START_NUMBER'");
+if ($result->num_rows > 0) {
+    $deliveryStartNumber = (int)$result->fetch_assoc()['SETTING_VALUE'];
+}
+
 
 $minTVA = 13;
 $maxTVA = 27;
@@ -36,20 +50,54 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['logout'])) {
     redirect('../../login.php');
 }
 
+
+// Handle number settings save
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_number_settings'])) {
+    $invoiceStart = (int)$_POST['invoice_start'];
+    $deliveryStart = (int)$_POST['delivery_start'];
+
+    if ($invoiceStart > 0 && $deliveryStart > 0) {
+        $stmt = $conn->prepare("INSERT INTO APP_SETTINGS (SETTING_KEY, SETTING_VALUE) VALUES 
+                              ('INVOICE_START_NUMBER', ?), ('DELIVERY_START_NUMBER', ?)
+                              ON DUPLICATE KEY UPDATE SETTING_VALUE = VALUES(SETTING_VALUE)");
+        $stmt->bind_param("ii", $invoiceStart, $deliveryStart);
+
+        if ($stmt->execute()) {
+            $_SESSION['success'] = "Numbering settings updated successfully!";
+        } else {
+            $_SESSION['error'] = "Error updating settings: " . $conn->error;
+        }
+        $stmt->close();
+    } else {
+        $_SESSION['error'] = "Starting numbers must be greater than 0";
+    }
+    redirect('index.php');
+}
+
 // Handle data export
 
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['export_data'])) {
     // Get all data tables
     $tables = [
-        'users', 'APP_SETTINGS', 'CATEGORY', 'SUPPLIER', 'CLIENT', 'PRODUCT',
-        'BUY_INVOICE_HEADER', 'BUY_INVOICE_DETAILS',
-        'SELL_INVOICE_HEADER', 'SELL_INVOICE_DETAILS',
-        'DEVIS_HEADER', 'DEVIS_DETAILS',
-        'BON_LIVRAISON_ACHAT_HEADER', 'BON_LIVRAISON_ACHAT_DETAILS',
-        'BON_LIVRAISON_VENTE_HEADER', 'BON_LIVRAISON_VENTE_DETAILS'
+        'users',
+        'APP_SETTINGS',
+        'CATEGORY',
+        'SUPPLIER',
+        'CLIENT',
+        'PRODUCT',
+        'BUY_INVOICE_HEADER',
+        'BUY_INVOICE_DETAILS',
+        'SELL_INVOICE_HEADER',
+        'SELL_INVOICE_DETAILS',
+        'DEVIS_HEADER',
+        'DEVIS_DETAILS',
+        'BON_LIVRAISON_ACHAT_HEADER',
+        'BON_LIVRAISON_ACHAT_DETAILS',
+        'BON_LIVRAISON_VENTE_HEADER',
+        'BON_LIVRAISON_VENTE_DETAILS'
     ];
-    
+
     $backupData = [
         'tables' => [],
         'images' => []
@@ -75,7 +123,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['export_data'])) {
             redirect('index.php');
         }
     }
-    
+
 
     // Backup product images
     $products = $conn->query("SELECT ID, IMAGE FROM PRODUCT WHERE IMAGE IS NOT NULL");
@@ -205,7 +253,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['import_data']) && iss
 
                 $null = null;
                 $stmt->send_long_data(0, $imageBinary);
-                
+
                 if (!$stmt->execute()) {
                     throw new Exception("Error restoring image for $type ID $id: " . $conn->error);
                 }
@@ -334,17 +382,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['edit_user'])) {
 }
 
 
-// Add this to the POST handling section:
+// Add this to the POST handling section TVA:
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_tva_settings'])) {
     $minTVA = (float)$_POST['min_tva'];
     $maxTVA = (float)$_POST['max_tva'];
-    
+
     if ($minTVA >= 0 && $maxTVA > $minTVA && $maxTVA <= 100) {
         $stmt = $conn->prepare("INSERT INTO APP_SETTINGS (SETTING_KEY, SETTING_VALUE) VALUES 
                               ('MIN_TVA_RATE', ?), ('MAX_TVA_RATE', ?)
                               ON DUPLICATE KEY UPDATE SETTING_VALUE = VALUES(SETTING_VALUE)");
         $stmt->bind_param("dd", $minTVA, $maxTVA);
-        
+
         if ($stmt->execute()) {
             $_SESSION['success'] = "Paramètres TVA mis à jour avec succès!";
         } else {
@@ -378,6 +426,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['change_user_password'
     }
     redirect('index.php');
 }
+
+
 
 // Handle user deletion
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['delete_user'])) {
@@ -469,11 +519,26 @@ if (isset($_SESSION['error'])) {
             </div>
         </form>
 
+       
+
         <!-- Add logout button here -->
         <form action="" method="post" class="logout-form">
             <button type="submit" name="logout" class="btn btn-logout">
                 <i class="fas fa-sign-out-alt"></i> Déconnexion
             </button>
+        </form>
+
+
+                <h2>Apparence</h2>
+        <form action="" method="post">
+            <div class="form-group">
+                <label>Thème:</label>
+                <div class="theme-toggle">
+                    <button type="submit" name="toggle_theme" class="btn btn-theme-toggle">
+                        <i class="fas fa-moon"></i> Mode <?php echo isset($_SESSION['dark_mode']) && $_SESSION['dark_mode'] ? 'Clair' : 'Sombre'; ?>
+                    </button>
+                </div>
+            </div>
         </form>
     </div>
 
@@ -542,26 +607,7 @@ if (isset($_SESSION['error'])) {
             </table>
         </div>
 
-        <div class="settings-section">
-            <h2>Paramètres TVA</h2>
-            <form action="" method="post">
-                <div class="form-group">
-                    <label for="min_tva">TVA Minimum (%):</label>
-                    <input type="number" name="min_tva" id="min_tva" step="0.1" min="0" max="100"
-                        value="<?php echo $minTVA; ?>" required>
-                </div>
-
-                <div class="form-group">
-                    <label for="max_tva">TVA Maximum (%):</label>
-                    <input type="number" name="max_tva" id="max_tva" step="0.1" min="0" max="100"
-                        value="<?php echo $maxTVA; ?>" required>
-                </div>
-
-                <div class="form-actions">
-                    <button type="submit" name="save_tva_settings" class="btn btn-primary">Enregistrer</button>
-                </div>
-            </form>
-        </div>
+        
 
         <!-- Edit User Modal -->
         <div id="editUserModal" class="modal">
@@ -592,21 +638,58 @@ if (isset($_SESSION['error'])) {
                     </div>
                 </form>
             </div>
+
+
         </div>
     </div>
 
     <div class="settings-section">
-        <h2>Apparence</h2>
-        <form action="" method="post">
-            <div class="form-group">
-                <label>Thème:</label>
-                <div class="theme-toggle">
-                    <button type="submit" name="toggle_theme" class="btn btn-theme-toggle">
-                        <i class="fas fa-moon"></i> Mode <?php echo isset($_SESSION['dark_mode']) && $_SESSION['dark_mode'] ? 'Clair' : 'Sombre'; ?>
-                    </button>
+
+
+        <div class="settings-section">
+            <h2>Paramètres TVA</h2>
+            <form action="" method="post">
+                <div class="form-group">
+                    <label for="min_tva">TVA Minimum (%):</label>
+                    <input type="number" name="min_tva" id="min_tva" step="0.1" min="0" max="100"
+                        value="<?php echo $minTVA; ?>" required>
                 </div>
-            </div>
-        </form>
+
+                <div class="form-group">
+                    <label for="max_tva">TVA Maximum (%):</label>
+                    <input type="number" name="max_tva" id="max_tva" step="0.1" min="0" max="100"
+                        value="<?php echo $maxTVA; ?>" required>
+                </div>
+
+                <div class="form-actions">
+                    <button type="submit" name="save_tva_settings" class="btn btn-primary">Enregistrer</button>
+                </div>
+            </form>
+        </div>
+
+        <div class="settings-section">
+            <h2>Reference de Facture</h2>
+            <form action="" method="post">
+                <div class="form-group">
+                    <label for="invoice_start">Numero de Facture suivant:</label>
+                    <input type="number" name="invoice_start" id="invoice_start" min="1"
+                        value="<?php echo $invoiceStartNumber; ?>" required>
+                    <small>The next invoice will be: INV<?php echo str_pad($invoiceStartNumber, 5, '0', STR_PAD_LEFT); ?></small>
+                </div>
+
+                <div class="form-group">
+                    <label for="delivery_start">Numero de BL suivante:</label>
+                    <input type="number" name="delivery_start" id="delivery_start" min="1"
+                        value="<?php echo $deliveryStartNumber; ?>" required>
+                    <small>The next delivery note will be: BLV<?php echo str_pad($deliveryStartNumber, 5, '0', STR_PAD_LEFT); ?></small>
+                </div>
+
+                <div class="form-actions">
+                    <button type="submit" name="save_number_settings" class="btn btn-primary">Save</button>
+                </div>
+            </form>
+        </div>
+
     </div>
 </div>
 

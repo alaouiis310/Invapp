@@ -16,38 +16,94 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     // Start transaction
     $conn->begin_transaction();
 
+    function numberToFrenchWords($number)
+    {
+        $units = array('', 'un', 'deux', 'trois', 'quatre', 'cinq', 'six', 'sept', 'huit', 'neuf');
+        $teens = array('dix', 'onze', 'douze', 'treize', 'quatorze', 'quinze', 'seize', 'dix-sept', 'dix-huit', 'dix-neuf');
+        $tens = array('', 'dix', 'vingt', 'trente', 'quarante', 'cinquante', 'soixante', 'soixante-dix', 'quatre-vingt', 'quatre-vingt-dix');
+        $thousands = array('', 'mille', 'million', 'milliard');
+
+        $words = array();
+        $number = str_replace(',', '', $number);
+        $parts = explode('.', $number);
+        $whole = (int)$parts[0];
+        $decimal = isset($parts[1]) ? substr($parts[1], 0, 2) : '00';
+
+        if ($whole == 0) {
+            $words[] = 'zéro';
+        } else {
+            $chunks = array_reverse(str_split(str_pad($whole, 12, '0', STR_PAD_LEFT), 3));
+
+            foreach ($chunks as $i => $chunk) {
+                if ($chunk != '000') {
+                    $chunkWords = array();
+                    $hundreds = (int)substr($chunk, 0, 1);
+                    $tensUnits = (int)substr($chunk, 1, 2);
+
+                    if ($hundreds > 0) {
+                        $chunkWords[] = ($hundreds == 1 ? '' : $units[$hundreds]) . ' cent';
+                    }
+
+                    if ($tensUnits > 0) {
+                        if ($tensUnits < 10) {
+                            $chunkWords[] = $units[$tensUnits];
+                        } elseif ($tensUnits < 20) {
+                            $chunkWords[] = $teens[$tensUnits - 10];
+                        } else {
+                            $ten = (int)($tensUnits / 10);
+                            $unit = $tensUnits % 10;
+
+                            if ($ten == 7 || $ten == 9) {
+                                $ten--; // Soixante-dix becomes soixante, quatre-vingt-dix becomes quatre-vingt
+                                $unit += 10;
+                            }
+
+                            if ($unit == 0) {
+                                $chunkWords[] = $tens[$ten];
+                            } elseif ($unit == 1 && $ten != 8) {
+                                $chunkWords[] = $tens[$ten] . '-et-un';
+                            } else {
+                                $chunkWords[] = $tens[$ten] . '-' . $units[$unit];
+                            }
+                        }
+                    }
+
+                    if ($i > 0) {
+                        $chunkWords[] = $thousands[$i] . ($i > 1 && $chunk > 1 ? 's' : '');
+                    }
+
+                    $words[] = implode(' ', $chunkWords);
+                }
+            }
+        }
+
+        $result = implode(' ', array_reverse($words));
+        $result = str_replace('  ', ' ', $result);
+
+        if ($decimal != '00') {
+            $result .= ' virgule ' . numberToFrenchWords($decimal);
+        }
+
+        return $result . ' dirhams';
+    }
+
     // Verify client exists (should exist from step1, but double-check)
     $verifyClient = $conn->prepare("SELECT ID FROM CLIENT WHERE CLIENTNAME = ?");
-    $verifyClient->bind_param("s", $_SESSION['sales_delivery']['client_name']);
+    $clientName = $_SESSION['sales_delivery']['client_name'];
+    $verifyClient->bind_param("s", $clientName);
     $verifyClient->execute();
 
     if ($verifyClient->get_result()->num_rows === 0) {
-        // Create client if somehow missing
         $createClient = $conn->prepare("INSERT INTO CLIENT (CLIENTNAME, ICE) VALUES (?, ?)");
-        $createClient->bind_param(
-            "ss",
-            $_SESSION['sales_delivery']['client_name'],
-            $_SESSION['sales_delivery']['company_ice']
-        );
+        $companyIce = $_SESSION['sales_delivery']['company_ice'] ?? '';
+        $createClient->bind_param("ss", $clientName, $companyIce);
         $createClient->execute();
         $createClient->close();
     }
     $verifyClient->close();
 
     try {
-        // Insert delivery header
-        $stmt = $conn->prepare("INSERT INTO BON_LIVRAISON_VENTE_HEADER (
-            ID_BON, 
-            CLIENT_NAME, 
-            COMPANY_ICE, 
-            INVOICE_TYPE, 
-            PAYMENT_METHOD,
-            TOTAL_PRICE_TTC, 
-            TOTAL_PRICE_HT, 
-            TVA, 
-            DATE
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
-
+        // Calculate totals
         $totalHT = 0;
         $totalTVA = 0;
         $totalTTC = 0;
@@ -62,21 +118,35 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $totalTTC += $productTotal;
         }
 
-        // Calculate values first
-        $totalHT = (float)$totalHT;
-        $totalTVA = (float)$totalTVA;
-        $totalTTC = (float)$totalTTC;
+        // Insert delivery header
+        $stmt = $conn->prepare("INSERT INTO BON_LIVRAISON_VENTE_HEADER (
+            ID_BON, 
+            CLIENT_NAME, 
+            COMPANY_ICE, 
+            INVOICE_TYPE, 
+            PAYMENT_METHOD,
+            TOTAL_PRICE_TTC, 
+            TOTAL_PRICE_HT, 
+            TVA, 
+            DATE
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
 
-        // Create a date variable
         $deliveryDate = date('Y-m-d');
+
+        // Create variables from session data
+        $deliveryNumber = $_SESSION['sales_delivery']['delivery_number'];
+        $clientName = $_SESSION['sales_delivery']['client_name'];
+        $companyIce = $_SESSION['sales_delivery']['company_ice'] ?? '';
+        $deliveryType = $_SESSION['sales_delivery']['delivery_type'];
+        $paymentMethod = $_SESSION['sales_delivery']['payment_method'];
 
         $stmt->bind_param(
             "sssssddds",
-            $_SESSION['sales_delivery']['delivery_number'],
-            $_SESSION['sales_delivery']['client_name'],
-            $_SESSION['sales_delivery']['company_ice'],
-            $_SESSION['sales_delivery']['delivery_type'],
-            $_SESSION['sales_delivery']['payment_method'],
+            $deliveryNumber,
+            $clientName,
+            $companyIce,
+            $deliveryType,
+            $paymentMethod,
             $totalTTC,
             $totalHT,
             $totalTVA,
@@ -122,75 +192,172 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         // Commit transaction
         $conn->commit();
 
+        // Fetch the inserted delivery data for PDF generation
+        $deliveryHeaderQuery = $conn->prepare("SELECT * FROM BON_LIVRAISON_VENTE_HEADER WHERE ID = ?");
+        $deliveryHeaderQuery->bind_param("i", $deliveryId);
+        $deliveryHeaderQuery->execute();
+        $deliveryHeader = $deliveryHeaderQuery->get_result()->fetch_assoc();
+        $deliveryHeaderQuery->close();
+
+        $deliveryDetailsQuery = $conn->prepare("SELECT * FROM BON_LIVRAISON_VENTE_DETAILS WHERE ID_BON = ?");
+        $deliveryDetailsQuery->bind_param("i", $deliveryId);
+        $deliveryDetailsQuery->execute();
+        $deliveryDetails = $deliveryDetailsQuery->get_result()->fetch_all(MYSQLI_ASSOC);
+        $deliveryDetailsQuery->close();
+
         // Generate PDF
         require_once '../../../libs/fpdf/fpdf.php';
 
         $pdf = new FPDF();
         $pdf->AddPage();
-        $pdf->SetFont('Arial', 'B', 16);
+        $pdf->SetFont('Arial', '', 11);
 
-        // Delivery header
-        $pdf->Cell(0, 10, 'Bon de Livraison Vente', 0, 1, 'C');
-        $pdf->Ln(10);
+        // Client information
+        if (isset($deliveryHeader['CLIENT_NAME'])) {
+            $pdf->SetFont('Arial', '', 12);
+            $boxHeight = 32;
+            $boxWidth = 100;
+            $boxX = 100;
+            $pdf->Rect($boxX, 20, $boxWidth, $boxHeight);
 
-        $pdf->SetFont('Arial', '', 12);
-        $pdf->Cell(0, 10, 'Numero: ' . $_SESSION['sales_delivery']['delivery_number'], 0, 1);
-        $pdf->Cell(0, 10, 'Date: ' . date('d/m/Y'), 0, 1);
-        $pdf->Cell(0, 10, 'Client: ' . $_SESSION['sales_delivery']['client_name'], 0, 1);
-        $pdf->Cell(0, 10, 'Méthode de Paiement: ' . $_SESSION['sales_delivery']['payment_method'], 0, 1);
+            // Client Name
+            $pdf->SetXY($boxX + 5, 22);
+            $pdf->Cell(13, 6, 'Nom :', 0, 0);
+            $pdf->MultiCell($boxWidth - 20, 6, $deliveryHeader['CLIENT_NAME'], 0);
 
-        if ($_SESSION['sales_delivery']['delivery_type'] === 'Company') {
-            $pdf->Cell(0, 10, 'ICE: ' . $_SESSION['sales_delivery']['company_ice'], 0, 1);
+            // ICE Number
+            $pdf->SetFont('Arial', '', 10);
+            $currentY = $pdf->GetY();
+            $pdf->SetXY($boxX + 5, $currentY);
+            $pdf->Cell(10, 6, 'ICE :', 0, 0);
+            $pdf->Cell(22, 6, $deliveryHeader['COMPANY_ICE'], 0, 1);
+
+            // Reset font size
+            $pdf->SetFont('Arial', '', 11);
         }
 
-        $pdf->Ln(10);
+        // Delivery title
+        $pdf->SetFont('Arial', 'B', 20);
+        $pdf->SetXY(10, 46);
+        $pdf->Cell(0, 10, 'BON DE LIVRAISON', 0, 1);
+
+        // Number/date block
+        $pdf->SetFont('Arial', '', 11);
+        $pdf->SetXY(10, 58);
+        $pdf->Cell(30, 8, 'Numero', 1, 0, 'C');
+        $pdf->Cell(30, 8, 'Date', 1, 1, 'C');
+        $pdf->SetFont('Arial', '', 10);
+
+        $pdf->SetX(10);
+        $pdf->Cell(30, 8, $deliveryHeader['ID_BON'], 1, 0, 'C');
+        $pdf->Cell(30, 8, date('d/m/Y', strtotime($deliveryHeader['DATE'])), 1, 1, 'C');
 
         // Products table
-        $pdf->SetFont('Arial', 'B', 12);
-        $pdf->Cell(30, 10, 'Quantite', 1);
-        $pdf->Cell(60, 10, 'Designation', 1);
-        $pdf->Cell(40, 10, 'Prix Unitaire', 1);
-        $pdf->Cell(40, 10, 'Prix Total', 1, 1);
+        $pdf->Ln(10);
+        $maxRows = 17;
+        $rowHeight = 8;
 
-        $pdf->SetFont('Arial', '', 12);
-        foreach ($_SESSION['sales_products'] as $product) {
-            $pdf->Cell(30, 10, $product['quantity'], 1);
-            $pdf->Cell(60, 10, $product['product_name'], 1);
-            $pdf->Cell(40, 10, number_format($product['unit_price'], 2) . ' DH', 1);
-            $pdf->Cell(40, 10, number_format($product['unit_price'] * $product['quantity'], 2) . ' DH', 1, 1);
+        // Table header
+        $pdf->SetFont('Arial', 'B', 11);
+        $pdf->Cell(20, $rowHeight, 'QTE', 'LTRB', 0, 'C');
+        $pdf->Cell(115, $rowHeight, 'DESIGNATION', 'TRB', 0, 'C');
+        $pdf->Cell(20, $rowHeight, 'P.U TTC', 'TRB', 0, 'C');
+        $pdf->Cell(35, $rowHeight, 'TOTAL TTC', 'TRB', 1, 'C');
+
+        // Table rows
+        $pdf->SetFont('Arial', '', 11);
+        $rowCount = 0;
+
+        if (is_array($deliveryDetails)) {
+            foreach ($deliveryDetails as $detail) {
+                if ($rowCount >= $maxRows) break;
+                $pdf->Cell(20, $rowHeight, $detail['QUANTITY'], 'LR', 0, 'C');
+                $pdf->Cell(115, $rowHeight, $detail['PRODUCT_NAME'], 'R', 0, 'L');
+                $pdf->Cell(20, $rowHeight, number_format($detail['UNIT_PRICE_TTC'], 2), 'R', 0, 'R');
+                $pdf->Cell(35, $rowHeight, number_format($detail['TOTAL_PRICE_TTC'], 2), 'R', 1, 'R');
+                $rowCount++;
+            }
         }
 
-        // Totals
+        // Fill empty rows
+        while ($rowCount < $maxRows) {
+            $pdf->Cell(20, $rowHeight, '', 'LR', 0, 'C');
+            $pdf->Cell(115, $rowHeight, '', 'R', 0, 'L');
+            $pdf->Cell(20, $rowHeight, '', 'R', 0, 'R');
+            $pdf->Cell(35, $rowHeight, '', 'R', 1, 'R');
+            $rowCount++;
+        }
+
+        // Bottom border
+        $pdf->Cell(20, 0, '', 'LBR');
+        $pdf->Cell(115, 0, '', 'BR');
+        $pdf->Cell(20, 0, '', 'BR');
+        $pdf->Cell(35, 0, '', 'BR', 1);
+
         $pdf->Ln(10);
-        $pdf->Cell(130, 10, 'Total HT:', 0, 0, 'R');
-        $pdf->Cell(40, 10, number_format($totalHT, 2) . ' DH', 0, 1);
+        $startY = $pdf->GetY();
 
-        $pdf->Cell(130, 10, 'TVA (20%):', 0, 0, 'R');
-        $pdf->Cell(40, 10, number_format($totalTVA, 2) . ' DH', 0, 1);
+        $pdf->Ln(5);
+        $pdf->SetFont('Arial', 'I', 11);
+        $pdf->SetTextColor(0, 0, 255);
 
-        $pdf->Cell(130, 10, 'Total TTC:', 0, 0, 'R');
-        $pdf->Cell(40, 10, number_format($totalTTC, 2) . ' DH', 0, 1);
 
-        // Save PDF
-        $pdfPath = '../../deliveries/' . $_SESSION['sales_delivery']['delivery_number'] . '.pdf';
+
+
+
+
+        // Save Y position after explanatory text
+        $afterTextY = $pdf->GetY();
+
+        // Numeric totals on the right (fixed position)
+        $pdf->SetXY(140, $startY);
+        $pdf->SetTextColor(0, 0, 0);
+        $pdf->SetFont('Arial', '', 12);
+        $pdf->Cell(30, 8, 'TOTAL HT', 1, 0, 'C');
+        $pdf->Cell(30, 8, number_format($totalHT, 2), 1, 1, 'R');
+
+        $pdf->SetX(140);
+        $pdf->Cell(30, 8, 'TVA', 1, 0, 'C');
+        $pdf->Cell(30, 8, number_format($totalTVA, 2), 1, 1, 'R');
+
+        $pdf->SetX(140);
+        $pdf->Cell(30, 8, 'TOTAL TTC', 1, 0, 'C');
+        $pdf->Cell(30, 8, number_format($totalTTC, 2), 1, 1, 'R');
+
+
+
+        // Save PDF to file in ../../BL directory
+        $pdfPath = '../../BL/' . $deliveryHeader['ID_BON'] . '.pdf';
+        if (!file_exists('../../BL')) {
+            if (!mkdir('../../BL', 0777, true)) {
+                throw new Exception("Could not create BL directory");
+            }
+        }
+
         $pdf->Output('F', $pdfPath);
+
+        if (!file_exists($pdfPath)) {
+            throw new Exception("PDF file was not created successfully");
+        }
 
         // Clear session data
         unset($_SESSION['sales_delivery']);
         unset($_SESSION['sales_products']);
 
-        // Redirect to view page with download link
+        // Set success message and redirect
         $_SESSION['success_message'] = "Bon de livraison enregistré avec succès!";
         $_SESSION['delivery_pdf'] = $pdfPath;
         redirect('view.php');
     } catch (Exception $e) {
-        // Rollback transaction on error
         $conn->rollback();
         $_SESSION['error_message'] = "Erreur lors de l'enregistrement: " . $e->getMessage();
+        error_log("Delivery Error: " . $e->getMessage());
+        header("Location: view.php");
+        exit();
     }
 }
 
-// Calculate totals
+// Calculate totals for display
 $totalHT = 0;
 $totalTVA = 0;
 $totalTTC = 0;
@@ -210,12 +377,12 @@ foreach ($_SESSION['sales_products'] as $product) {
 
 <div class="delivery-summary">
     <h3>Résumé du Bon de Livraison</h3>
-    <p><strong>Client:</strong> <?php echo $_SESSION['sales_delivery']['client_name']; ?></p>
+    <p><strong>Client:</strong> <?php echo htmlspecialchars($_SESSION['sales_delivery']['client_name']); ?></p>
     <?php if ($_SESSION['sales_delivery']['delivery_type'] === 'Company'): ?>
-        <p><strong>ICE:</strong> <?php echo $_SESSION['sales_delivery']['company_ice']; ?></p>
+        <p><strong>ICE:</strong> <?php echo htmlspecialchars($_SESSION['sales_delivery']['company_ice']); ?></p>
     <?php endif; ?>
-    <p><strong>Méthode de Paiement:</strong> <?php echo $_SESSION['sales_delivery']['payment_method']; ?></p>
-    <p><strong>Numéro:</strong> <?php echo $_SESSION['sales_delivery']['delivery_number']; ?></p>
+    <p><strong>Méthode de Paiement:</strong> <?php echo ucfirst($_SESSION['sales_delivery']['payment_method']); ?></p>
+    <p><strong>Numéro:</strong> <?php echo htmlspecialchars($_SESSION['sales_delivery']['delivery_number']); ?></p>
     <p><strong>Date:</strong> <?php echo date('d/m/Y'); ?></p>
 </div>
 
@@ -232,8 +399,8 @@ foreach ($_SESSION['sales_products'] as $product) {
     <tbody>
         <?php foreach ($_SESSION['sales_products'] as $product): ?>
             <tr>
-                <td><?php echo $product['quantity']; ?></td>
-                <td><?php echo $product['product_name']; ?></td>
+                <td><?php echo htmlspecialchars($product['quantity']); ?></td>
+                <td><?php echo htmlspecialchars($product['product_name']); ?></td>
                 <td><?php echo number_format($product['unit_price'], 2); ?> DH</td>
                 <td><?php echo number_format($product['unit_price'] * $product['quantity'], 2); ?> DH</td>
             </tr>

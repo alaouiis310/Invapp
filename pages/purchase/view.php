@@ -23,10 +23,21 @@ if ($supplierQuery->num_rows > 0) {
     }
 }
 
-// Build the SQL query with filters
+// Get visibility settings
+$visibilityDays = (int)getSetting('PURCHASE_INVOICE_VISIBILITY_DAYS', 180);
+$minTTC = (float)getSetting('PURCHASE_INVOICE_MIN_TTC', 0);
+$cutoffDate = date('Y-m-d', strtotime("-$visibilityDays days"));
+
+// Build the SQL query with filters - START WITH BASE QUERY
 $sql = "SELECT * FROM BUY_INVOICE_HEADER WHERE 1=1";
 $params = [];
 $types = '';
+
+// Add visibility filters FIRST
+$sql .= " AND DATE >= ? AND TOTAL_PRICE_TTC >= ?";
+$params[] = $cutoffDate;
+$params[] = $minTTC;
+$types .= 'sd';
 
 // Add search term filter
 if (!empty($searchTerm)) {
@@ -84,10 +95,6 @@ $result = $stmt->get_result();
 if (!$result) {
     die("Query failed: " . $conn->error);
 }
-
-// Debugging: Uncomment to see the generated SQL
-//echo "SQL: $sql<br>";
-//echo "Params: "; print_r($params);
 ?>
 
 <h1>Factures d'Achat</h1>

@@ -17,11 +17,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_product'])) {
         $_SESSION['purchase_products'] = [];
     }
     
+    // Convert French-style numbers to PHP float format
+    $quantity = str_replace([' ', ','], ['', '.'], $_POST['quantity']);
+    $unit_price = str_replace([' ', ','], ['', '.'], $_POST['unit_price']);
+    
+    // Validate the numeric values
+    if (!is_numeric($quantity) || !is_numeric($unit_price)) {
+        $_SESSION['error'] = "Veuillez entrer des valeurs numériques valides pour la quantité et le prix";
+        redirect('add_step2.php');
+    }
+    
     $product = [
         'reference' => sanitizeInput($_POST['reference']),
         'product_name' => sanitizeInput($_POST['product_name']),
-        'quantity' => (int)$_POST['quantity'],
-        'unit_price' => (float)$_POST['unit_price'],
+        'quantity' => (float)$quantity,
+        'unit_price' => (float)$unit_price,
         'category' => sanitizeInput($_POST['category']),
         'image' => null
     ];
@@ -56,6 +66,11 @@ if ($result->num_rows > 0) {
 
 <h1>Nouvelle Facture d'Achat - Étape 2/3</h1>
 
+<!-- Display error message if any -->
+<?php if (isset($_SESSION['error'])): ?>
+    <div class="alert alert-danger"><?php echo $_SESSION['error']; unset($_SESSION['error']); ?></div>
+<?php endif; ?>
+
 <div class="invoice-summary">
     <h3>Résumé de la Facture</h3>
     <p><strong>Fournisseur:</strong> <?php echo $_SESSION['purchase_invoice']['supplier_name']; ?></p>
@@ -64,7 +79,7 @@ if ($result->num_rows > 0) {
 </div>
 
 <h3>Ajouter un Produit</h3>
-<form action="" method="post" enctype="multipart/form-data">
+<form action="" method="post" enctype="multipart/form-data" onsubmit="return validateDecimalInputs()">
     <div class="form-group">
         <label for="reference">Référence:</label>
         <input type="text" name="reference" id="reference" required>
@@ -77,12 +92,20 @@ if ($result->num_rows > 0) {
     
     <div class="form-group">
         <label for="quantity">Quantité:</label>
-        <input type="number" name="quantity" id="quantity" min="1" required>
+        <input type="text" name="quantity" id="quantity" 
+               pattern="^[0-9]+([,.][0-9]+)?$" 
+               title="Entrez un nombre décimal (ex: 128,25 ou 128.25)" 
+               oninput="formatDecimalInput(this)" 
+               required>
     </div>
     
     <div class="form-group">
         <label for="unit_price">Prix Unitaire (TTC):</label>
-        <input type="number" name="unit_price" id="unit_price" step="0.01" min="0" required>
+        <input type="text" name="unit_price" id="unit_price" 
+               pattern="^[0-9]+([,.][0-9]+)?$" 
+               title="Entrez un nombre décimal (ex: 128,25 ou 128.25)" 
+               oninput="formatDecimalInput(this)" 
+               required>
     </div>
     
     <div class="form-group">
@@ -105,6 +128,43 @@ if ($result->num_rows > 0) {
         <button type="submit" name="add_product" class="btn btn-primary">Ajouter Produit</button>
     </div>
 </form>
+
+<script>
+// Format decimal input to allow both comma and dot as decimal separator
+function formatDecimalInput(input) {
+    // Replace any comma with dot for consistent processing
+    input.value = input.value.replace(/,/g, '.');
+    
+    // Ensure only one decimal point
+    if ((input.value.match(/\./g) || []).length > 1) {
+        input.value = input.value.substring(0, input.value.lastIndexOf('.'));
+    }
+    
+    // Remove any non-numeric characters except decimal point
+    input.value = input.value.replace(/[^0-9.]/g, '');
+}
+
+// Validate decimal inputs before form submission
+function validateDecimalInputs() {
+    const quantity = document.getElementById('quantity');
+    const unitPrice = document.getElementById('unit_price');
+    
+    // Check if the values are valid numbers
+    if (isNaN(parseFloat(quantity.value))) { 
+        alert('Veuillez entrer une quantité valide');
+        quantity.focus();
+        return false;
+    }
+    
+    if (isNaN(parseFloat(unitPrice.value))) {
+        alert('Veuillez entrer un prix unitaire valide');
+        unitPrice.focus();
+        return false;
+    }
+    
+    return true;
+}
+</script>
 
 <?php if (!empty($_SESSION['purchase_products'])): ?>
     <h3>Produits Ajoutés</h3>
@@ -138,9 +198,9 @@ if ($result->num_rows > 0) {
                 <tr>
                     <td><?php echo $product['reference']; ?></td>
                     <td><?php echo $product['product_name']; ?></td>
-                    <td><?php echo $product['quantity']; ?></td>
-                    <td><?php echo number_format($product['unit_price'], 2); ?> DH</td>
-                    <td><?php echo number_format($productTotal, 2); ?> DH</td>
+                    <td><?php echo number_format($product['quantity'], 2, ',', ' '); ?></td>
+                    <td><?php echo number_format($product['unit_price'], 2, ',', ' '); ?> DH</td>
+                    <td><?php echo number_format($productTotal, 2, ',', ' '); ?> DH</td>
                     <td><?php echo $product['category']; ?></td>
                     <td>
                         <a href="?remove=<?php echo $index; ?>" class="btn btn-danger">Supprimer</a>
@@ -151,9 +211,9 @@ if ($result->num_rows > 0) {
         <tfoot>
             <tr>
                 <th colspan="3">Totaux</th>
-                <th>HT: <?php echo number_format($totalHT, 2); ?> DH</th>
-                <th>TVA: <?php echo number_format($totalTVA, 2); ?> DH</th>
-                <th>TTC: <?php echo number_format($totalTTC, 2); ?> DH</th>
+                <th>HT: <?php echo number_format($totalHT, 2, ',', ' '); ?> DH</th>
+                <th>TVA: <?php echo number_format($totalTVA, 2, ',', ' '); ?> DH</th>
+                <th>TTC: <?php echo number_format($totalTTC, 2, ',', ' '); ?> DH</th>
                 <th></th>
             </tr>
         </tfoot>

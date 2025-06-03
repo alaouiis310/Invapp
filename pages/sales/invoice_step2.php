@@ -3,6 +3,33 @@ require_once '../../includes/config.php';
 require_once '../../includes/functions.php';
 requireLogin();
 
+// Initialize view mode and search term at the beginning
+$viewMode = isset($_GET['view']) ? sanitizeInput($_GET['view']) : 'category';
+$searchTerm = isset($_GET['search']) ? sanitizeInput($_GET['search']) : '';
+
+// Check if current user is admin
+$isAdmin = isAdmin();
+$userId = $_SESSION['user_id'];
+
+// Get user-specific visibility settings (only for non-admin users)
+$visibilitySettings = [
+    'invoice_stock_visibility_days' => 30  // Default value
+];
+
+if (!$isAdmin) {
+    $stmt = $conn->prepare("SELECT setting_key, setting_value FROM user_settings WHERE user_id = ?");
+    $stmt->bind_param("i", $userId);
+    $stmt->execute();
+    $result = $stmt->get_result();
+    
+    while ($row = $result->fetch_assoc()) {
+        if (array_key_exists($row['setting_key'], $visibilitySettings)) {
+            $visibilitySettings[$row['setting_key']] = $row['setting_value'];
+        }
+    }
+    $stmt->close();
+}
+
 // Check if we have the necessary session data
 if (!isset($_SESSION['sales_invoice'])) {
     redirect('invoice_step1.php');
@@ -157,7 +184,7 @@ if ($result->num_rows > 0) {
     }
 }
 
-// Get products based on view mode (only Facture type)
+// Get products based on view mode (only Facture type products with quantity > 0)
 $products = [];
 if ($viewMode === 'category' && !empty($categories)) {
     $currentCategory = isset($_GET['category']) ? sanitizeInput($_GET['category']) : $categories[0];
@@ -168,10 +195,22 @@ if ($viewMode === 'category' && !empty($categories)) {
             LEFT JOIN BUY_INVOICE_DETAILS bid ON p.REFERENCE = bid.PRODUCT_ID
             LEFT JOIN BUY_INVOICE_HEADER bih ON bid.ID_INVOICE = bih.ID_INVOICE
             WHERE p.CATEGORY_NAME = ? 
-            AND p.TYPE = 'Facture'";
+            AND p.TYPE = 'Facture'
+            AND p.QUANTITY > 0";  // Only show products with available stock
+    
+    // Add date visibility filter for non-admin users
+    if (!$isAdmin) {
+        $cutoffDate = date('Y-m-d', strtotime("-".$visibilitySettings['invoice_stock_visibility_days']." days"));
+        $sql .= " AND (bih.DATE >= ? OR bih.DATE IS NULL)";
+    }
     
     $params = [$currentCategory];
     $types = "s";
+    
+    if (!$isAdmin) {
+        $params[] = $cutoffDate;
+        $types .= "s";
+    }
     
     if (!empty($currentSupplier)) {
         $sql .= " AND bih.SUPPLIER_NAME = ?";
@@ -183,10 +222,14 @@ if ($viewMode === 'category' && !empty($categories)) {
     
     $stmt = $conn->prepare($sql);
     
-    if (!empty($currentSupplier)) {
-        $stmt->bind_param($types, $currentCategory, $currentSupplier);
+    if (!empty($currentSupplier) && $isAdmin) {
+        $stmt->bind_param("ss", $currentCategory, $currentSupplier);
+    } elseif (!empty($currentSupplier) && !$isAdmin) {
+        $stmt->bind_param("sss", $currentCategory, $cutoffDate, $currentSupplier);
+    } elseif (!$isAdmin) {
+        $stmt->bind_param("ss", $currentCategory, $cutoffDate);
     } else {
-        $stmt->bind_param($types, $currentCategory);
+        $stmt->bind_param("s", $currentCategory);
     }
     
     $stmt->execute();
@@ -199,18 +242,26 @@ if ($viewMode === 'category' && !empty($categories)) {
     }
     $stmt->close();
 } else {
-    // View all Facture type products with optional search and supplier filter
+    // View all Facture type products with quantity > 0 and optional search/supplier filter
     $currentSupplier = isset($_GET['supplier']) ? sanitizeInput($_GET['supplier']) : '';
     
     $sql = "SELECT p.ID, p.REFERENCE, p.PRODUCT_NAME, p.PRICE, p.QUANTITY 
             FROM PRODUCT p
             LEFT JOIN BUY_INVOICE_DETAILS bid ON p.REFERENCE = bid.PRODUCT_ID
             LEFT JOIN BUY_INVOICE_HEADER bih ON bid.ID_INVOICE = bih.ID_INVOICE
-            WHERE p.TYPE = 'Facture'";
+            WHERE p.TYPE = 'Facture'
+            AND p.QUANTITY > 0";  // Only show products with available stock
     
     $params = [];
     $types = "";
-    $whereAdded = false;
+    
+    // Add date visibility filter for non-admin users
+    if (!$isAdmin) {
+        $cutoffDate = date('Y-m-d', strtotime("-".$visibilitySettings['invoice_stock_visibility_days']." days"));
+        $sql .= " AND (bih.DATE >= ? OR bih.DATE IS NULL)";
+        $params[] = $cutoffDate;
+        $types .= "s";
+    }
     
     if (!empty($searchTerm)) {
         $sql .= " AND (p.PRODUCT_NAME LIKE ? OR p.REFERENCE LIKE ?)";
@@ -218,7 +269,6 @@ if ($viewMode === 'category' && !empty($categories)) {
         $params[] = $searchParam;
         $params[] = $searchParam;
         $types .= "ss";
-        $whereAdded = true;
     }
     
     if (!empty($currentSupplier)) {
@@ -340,7 +390,13 @@ if ($viewMode === 'category' && !empty($categories)) {
                         <td><?php echo $product['REFERENCE']; ?></td>
                         <td><?php echo $product['PRODUCT_NAME']; ?></td>
                         <td><?php echo number_format($product['PRICE'], 2); ?> DH</td>
-                        <td><?php echo $product['QUANTITY']; ?></td>
+                        <td>
+                            <?php 
+                            echo $product['QUANTITY']; 
+                            if ($product['QUANTITY'] < 5): ?>
+                                <span class="low-stock-warning">(Stock faible)</span>
+                            <?php endif; ?>
+                        </td>
                         <td>
                             <input type="number" name="quantity[<?php echo $product['ID']; ?>]" 
                                    min="1" max="<?php echo $product['QUANTITY']; ?>" value="1">
@@ -579,6 +635,12 @@ if ($viewMode === 'category' && !empty($categories)) {
     
     .invoice-summary h3 {
         margin-top: 0;
+    }
+    
+    .low-stock-warning {
+        color: #dc3545;
+        font-size: 0.8em;
+        margin-left: 5px;
     }
 </style>
 

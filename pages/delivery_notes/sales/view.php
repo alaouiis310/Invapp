@@ -15,6 +15,8 @@ $maxTotal = isset($_GET['max_total']) ? (float)$_GET['max_total'] : null;
 $startDate = isset($_GET['start_date']) ? sanitizeInput($_GET['start_date']) : '';
 $endDate = isset($_GET['end_date']) ? sanitizeInput($_GET['end_date']) : '';
 
+
+
 // Get all distinct clients for the filter dropdown
 $clients = [];
 $clientQuery = $conn->query("SELECT DISTINCT CLIENT_NAME FROM BON_LIVRAISON_VENTE_HEADER ORDER BY CLIENT_NAME");
@@ -38,9 +40,13 @@ $sql = "SELECT * FROM BON_LIVRAISON_VENTE_HEADER WHERE 1=1";
 $params = [];
 $types = '';
 
+// Debug SQL query building
+$debugSql = $sql;
+
 // Add search term filter
 if (!empty($searchTerm)) {
     $sql .= " AND (CLIENT_NAME LIKE ? OR ID_BON LIKE ?)";
+    $debugSql .= " AND (CLIENT_NAME LIKE '%$searchTerm%' OR ID_BON LIKE '%$searchTerm%')";
     $params[] = "%$searchTerm%";
     $params[] = "%$searchTerm%";
     $types .= 'ss';
@@ -49,6 +55,7 @@ if (!empty($searchTerm)) {
 // Add client filter
 if (!empty($clientFilter)) {
     $sql .= " AND CLIENT_NAME = ?";
+    $debugSql .= " AND CLIENT_NAME = '$clientFilter'";
     $params[] = $clientFilter;
     $types .= 's';
 }
@@ -56,33 +63,39 @@ if (!empty($clientFilter)) {
 // Add payment method filter
 if (!empty($paymentFilter)) {
     $sql .= " AND PAYMENT_METHOD = ?";
+    $debugSql .= " AND PAYMENT_METHOD = '$paymentFilter'";
     $params[] = $paymentFilter;
     $types .= 's';
 }
 
 // Add total TTC range filter
-if ($minTotal !== null && $minTotal !== '') {
-    $sql .= " AND TOTAL_PRICE_TTC >= ?";
-    $params[] = $minTotal;
-    $types .= 'd';
-}
-if ($maxTotal !== null && $maxTotal !== '') {
-    $sql .= " AND TOTAL_PRICE_TTC <= ?";
-    $params[] = $maxTotal;
-    $types .= 'd';
-}
+// To this (only apply the filter if not both are 0):
+    if (($minTotal !== null && $minTotal !== '') && !($minTotal == 0 && $maxTotal == 0)) {
+        $sql .= " AND TOTAL_PRICE_TTC >= ?";
+        $params[] = $minTotal;
+        $types .= 'd';
+    }
+    if (($maxTotal !== null && $maxTotal !== '') && !($minTotal == 0 && $maxTotal == 0)) {
+        $sql .= " AND TOTAL_PRICE_TTC <= ?";
+        $params[] = $maxTotal;
+        $types .= 'd';
+    }
 
 // Add date range filter
 if (!empty($startDate)) {
     $sql .= " AND DATE >= ?";
+    $debugSql .= " AND DATE >= '$startDate'";
     $params[] = $startDate;
     $types .= 's';
 }
 if (!empty($endDate)) {
     $sql .= " AND DATE <= ?";
+    $debugSql .= " AND DATE <= '$endDate'";
     $params[] = $endDate;
     $types .= 's';
 }
+
+
 
 // Prepare and execute the query
 $stmt = $conn->prepare($sql);
@@ -312,6 +325,9 @@ if (isset($_SESSION['delivery_pdf'])) {
     <a href="delivery_step1.php" class="btn btn-success">
         <i class="fas fa-plus"></i> Nouveau BL de vente
     </a>
+        <a href="../../Avoir_vente/credit_note_bl_view.php" class="btn btn-success">
+        <i class="fas fa-plus"></i> Avoir
+    </a>
 </div>
 
 <table>
@@ -352,4 +368,4 @@ if (isset($_SESSION['delivery_pdf'])) {
     </tbody>
 </table>
 
-<?php include '../../../includes/footerin.php'; ?>  
+<?php include '../../../includes/footerin.php'; ?>

@@ -1,6 +1,6 @@
 <?php
 require_once '../includes/config.php';
-require_once '../includes/functions.php';
+require_once '../includes/functionsd.php';
 requireLogin(); // This will redirect to login if not authenticated
 
 $title = "Tableau de Bord";

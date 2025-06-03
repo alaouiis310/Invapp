@@ -43,18 +43,39 @@ function redirect($url) {
     exit();
 }
 
-function generateInvoiceNumber($prefix = 'INV') {
-    return $prefix . date('Ymd') . strtoupper(substr(uniqid(), -6));
+function generateInvoiceNumber($prefix = 'FAC') {
+    global $conn;
+    
+    // Get the starting number from settings
+    $result = $conn->query("SELECT SETTING_VALUE FROM APP_SETTINGS WHERE SETTING_KEY = 'INVOICE_START_NUMBER'");
+    $startNumber = $result->num_rows > 0 ? (int)$result->fetch_assoc()['SETTING_VALUE'] : 1;
+    
+    // Generate the number with leading zeros
+    $invoiceNumber = $prefix . str_pad($startNumber, 5, '0', STR_PAD_LEFT);
+    
+    // Increment and save the next number
+    $nextNumber = $startNumber + 1;
+    $conn->query("UPDATE APP_SETTINGS SET SETTING_VALUE = $nextNumber WHERE SETTING_KEY = 'INVOICE_START_NUMBER'");
+    
+    return $invoiceNumber;
 }
 
+
+
 function generateDeliveryNumber($prefix = 'BLV') {
-    // Get current year and month
-    $yearMonth = date('Ym');
+    global $conn;
     
-    // Generate a random 4-digit number
-    $random = str_pad(mt_rand(1, 9999), 4, '0', STR_PAD_LEFT);
+    // Get the starting number from settings
+    $result = $conn->query("SELECT SETTING_VALUE FROM APP_SETTINGS WHERE SETTING_KEY = 'DELIVERY_START_NUMBER'");
+    $startNumber = $result->num_rows > 0 ? (int)$result->fetch_assoc()['SETTING_VALUE'] : 1;
     
-    // Combine to create the delivery number
-    return $prefix . '-' . $yearMonth . '-' . $random;
+    // Generate the number with leading zeros
+    $deliveryNumber = $prefix . str_pad($startNumber, 5, '0', STR_PAD_LEFT);
+    
+    // Increment and save the next number
+    $nextNumber = $startNumber + 1;
+    $conn->query("UPDATE APP_SETTINGS SET SETTING_VALUE = $nextNumber WHERE SETTING_KEY = 'DELIVERY_START_NUMBER'");
+    
+    return $deliveryNumber;
 }
 ?>

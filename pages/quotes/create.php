@@ -147,7 +147,7 @@ if ($result->num_rows > 0) {
     text-align: left;
 }
 .quote-table th {
-    background-color: #f2f2f2;
+    background-color: rgb(22, 106, 189);
 }
 .actions {
     white-space: nowrap;
